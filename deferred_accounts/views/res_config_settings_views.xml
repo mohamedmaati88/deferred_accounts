@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_deferred" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.deferred</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//app[@name='account']" position="inside">
+                <block title="Custom Deferred Recognition" name="vrs_deferred_block">
+                    <setting string="Custom Deferred Recognition"
+                             help="Enable custom deferred accounting per invoice line with a custom deferred account and recognition schedule.">
+                        <field name="vrs_deferred_enabled"/>
+                    </setting>
+                    <setting string="Based on"
+                             help="How to distribute the deferred amount across months for custom-account lines."
+                             invisible="not vrs_deferred_enabled">
+                        <field name="vrs_deferred_computation_method" widget="radio"/>
+                    </setting>
+                </block>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

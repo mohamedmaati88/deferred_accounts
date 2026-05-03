@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_move_form_deferred" model="ir.ui.view">
+        <field name="name">account.move.form.deferred</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Smart button -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_deferred_schedule"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-calendar-o"
+                        invisible="vrs_deferred_line_count == 0">
+                    <field name="vrs_deferred_line_count" widget="statinfo" string="Deferred"/>
+                </button>
+            </xpath>
+
+            <!-- Toggle for invoices: after Auto-Complete field -->
+            <xpath expr="//field[@name='invoice_vendor_bill_id']" position="after">
+                <field name="vrs_deferred_enabled" invisible="1"/>
+                <field name="vrs_is_deferred"
+                       widget="boolean_toggle"
+                       string="Custom Deferred"
+                       class="oe_edit_only"
+                       readonly="state == 'posted'"
+                       invisible="not vrs_deferred_enabled or move_type == 'entry'"/>
+            </xpath>
+
+            <!-- Toggle for journal entries: after the Ref field -->
+            <xpath expr="//field[@name='ref']" position="after">
+                <field name="vrs_is_deferred"
+                       widget="boolean_toggle"
+                       string="Custom Deferred"
+                       class="oe_edit_only"
+                       readonly="state == 'posted'"
+                       invisible="not vrs_deferred_enabled or move_type != 'entry'"/>
+            </xpath>
+
+            <!-- Custom columns in invoice_line_ids: show when toggle ON -->
+            <xpath expr="//field[@name='invoice_line_ids']//field[@name='price_subtotal']" position="after">
+                <field name="vrs_deferred_account_id" string="Deferred Acct"
+                       column_invisible="not parent.vrs_is_deferred"
+                       domain="[('account_type', 'in', ['asset_current', 'asset_non_current'] if parent.move_type in ('in_invoice', 'in_refund') else (['liability_current', 'liability_non_current'] if parent.move_type in ('out_invoice', 'out_refund') else ['asset_current', 'asset_non_current', 'liability_current', 'liability_non_current']))]"/>
+                <field name="vrs_deferred_start_date" string="Def. Start"
+                       column_invisible="not parent.vrs_is_deferred"/>
+                <field name="vrs_deferred_end_date" string="Def. End"
+                       column_invisible="not parent.vrs_is_deferred"/>
+                <button name="action_view_deferred_schedule_line"
+                        type="object"
+                        icon="fa-list"
+                        invisible="vrs_deferred_line_count == 0"/>
+                <field name="vrs_deferred_line_count" column_invisible="1"/>
+            </xpath>
+
+            <!-- Standard deferred_start_date: hide column when toggle ON -->
+            <xpath expr="//field[@name='invoice_line_ids']//field[@name='deferred_start_date']" position="attributes">
+                <attribute name="column_invisible">parent.vrs_is_deferred</attribute>
+            </xpath>
+
+            <!-- Standard deferred_start_date in line_ids: hide when toggle ON -->
+            <xpath expr="//field[@name='line_ids']//field[@name='deferred_start_date']" position="attributes">
+                <attribute name="column_invisible">parent.vrs_is_deferred</attribute>
+            </xpath>
+
+            <!-- Custom columns in line_ids (journal entries): show when toggle ON -->
+            <xpath expr="//field[@name='line_ids']//field[@name='credit']" position="after">
+                <field name="vrs_deferred_account_id" string="Deferred Acct"
+                       column_invisible="not parent.vrs_is_deferred"
+                       domain="[('account_type', 'in', ['asset_current', 'asset_non_current'] if parent.move_type in ('in_invoice', 'in_refund') else (['liability_current', 'liability_non_current'] if parent.move_type in ('out_invoice', 'out_refund') else ['asset_current', 'asset_non_current', 'liability_current', 'liability_non_current']))]"/>
+                <field name="vrs_deferred_start_date" string="Def. Start"
+                       column_invisible="not parent.vrs_is_deferred"/>
+                <field name="vrs_deferred_end_date" string="Def. End"
+                       column_invisible="not parent.vrs_is_deferred"/>
+                <button name="action_view_deferred_schedule_line"
+                        type="object"
+                        icon="fa-list"
+                        invisible="vrs_deferred_line_count == 0"/>
+                <field name="vrs_deferred_line_count" column_invisible="1"/>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

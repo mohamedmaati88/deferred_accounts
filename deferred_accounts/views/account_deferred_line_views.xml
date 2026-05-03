@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- List View -->
+    <record id="view_account_deferred_line_list" model="ir.ui.view">
+        <field name="name">account.deferred.line.list</field>
+        <field name="model">account.deferred.line</field>
+        <field name="arch" type="xml">
+            <list string="Deferred Recognition Schedule"
+                  decoration-success="state == 'posted'"
+                  decoration-muted="state == 'cancelled'">
+                <field name="is_initial" column_invisible="1"/>
+                <field name="name"/>
+                <field name="invoice_id"/>
+                <field name="deferred_type"/>
+                <field name="date"/>
+                <field name="amount"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="recognition_account_id"/>
+                <field name="deferred_account_id"/>
+                <field name="move_id"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'posted'"
+                       decoration-warning="state == 'draft'"
+                       decoration-danger="state == 'cancelled'"/>
+                <button name="action_post" string="Post" type="object"
+                        icon="fa-check"
+                        invisible="state != 'draft' or is_initial"/>
+                <button name="action_reset_to_draft" string="Reset" type="object"
+                        icon="fa-undo"
+                        invisible="state != 'posted' or is_initial"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="view_account_deferred_line_form" model="ir.ui.view">
+        <field name="name">account.deferred.line.form</field>
+        <field name="model">account.deferred.line</field>
+        <field name="arch" type="xml">
+            <form string="Deferred Recognition Entry">
+                <header>
+                    <button name="action_post" string="Post" type="object"
+                            class="btn-primary"
+                            invisible="state != 'draft' or is_initial"/>
+                    <button name="action_reset_to_draft" string="Reset to Draft" type="object"
+                            invisible="state != 'posted' or is_initial"/>
+                    <button name="action_cancel" string="Cancel" type="object"
+                            invisible="state != 'draft' or is_initial"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,posted"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="is_initial" invisible="1"/>
+                            <field name="invoice_id"/>
+                            <field name="deferred_type"/>
+                        </group>
+                        <group>
+                            <field name="date"/>
+                            <field name="amount"/>
+                            <field name="recognition_account_id"/>
+                            <field name="deferred_account_id"/>
+                            <field name="move_id" invisible="not move_id"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_account_deferred_line_search" model="ir.ui.view">
+        <field name="name">account.deferred.line.search</field>
+        <field name="model">account.deferred.line</field>
+        <field name="arch" type="xml">
+            <search string="Deferred Recognition Schedule">
+                <field name="name"/>
+                <field name="invoice_id"/>
+                <filter name="draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="posted" string="Posted" domain="[('state', '=', 'posted')]"/>
+                <filter name="expense" string="Deferred Expense" domain="[('deferred_type', '=', 'expense')]"/>
+                <filter name="revenue" string="Deferred Revenue" domain="[('deferred_type', '=', 'revenue')]"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_account_deferred_line" model="ir.actions.act_window">
+        <field name="name">Deferred Recognition Schedule</field>
+        <field name="res_model">account.deferred.line</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_account_deferred_line_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No deferred recognition entries yet.</p>
+        </field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem
+        id="menu_account_deferred_line"
+        name="Deferred Schedule"
+        parent="account.menu_finance_entries"
+        action="action_account_deferred_line"
+        sequence="20"
+    />
+
+</odoo>
