@@ -1,5 +1,5 @@
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 
 class AccountDeferredLine(models.Model):
@@ -43,6 +43,13 @@ class AccountDeferredLine(models.Model):
     )
     date = fields.Date(string='Date', required=True, index=True)
     amount = fields.Monetary(string='Amount', currency_field='currency_id', required=True)
+    # Amount in the invoice currency (equals amount when no foreign currency)
+    amount_currency = fields.Monetary(
+        string='Amount in Currency',
+        currency_field='currency_id',
+    )
+    partner_id = fields.Many2one('res.partner', string='Partner')
+    analytic_distribution = fields.Json('Analytic Distribution')
     recognition_account_id = fields.Many2one(
         'account.account',
         string='Recognition Account',
@@ -62,10 +69,15 @@ class AccountDeferredLine(models.Model):
         index=True,
     )
 
+    @api.constrains('amount')
+    def _check_amount(self):
+        for rec in self:
+            if rec.amount <= 0:
+                raise ValidationError(_('The recognition amount must be greater than zero.'))
+
     def action_post(self):
         for rec in self.filtered(lambda r: r.state == 'draft' and not r.is_initial):
             if rec.move_id:
-                # Re-post existing draft entry
                 rec.move_id.action_post()
             else:
                 move = rec._create_recognition_entry()
@@ -117,12 +129,20 @@ class AccountDeferredLine(models.Model):
                 type=journal_type,
             ))
 
+        # Reverse direction for refunds (credit notes)
+        is_refund = (
+            self.invoice_line_id.move_id.move_type in ('in_refund', 'out_refund')
+            if self.invoice_line_id else False
+        )
         if self.deferred_type == 'expense':
-            debit_account = self.recognition_account_id
-            credit_account = self.deferred_account_id
+            debit_account = self.deferred_account_id if is_refund else self.recognition_account_id
+            credit_account = self.recognition_account_id if is_refund else self.deferred_account_id
         else:
-            debit_account = self.deferred_account_id
-            credit_account = self.recognition_account_id
+            debit_account = self.recognition_account_id if is_refund else self.deferred_account_id
+            credit_account = self.deferred_account_id if is_refund else self.recognition_account_id
+
+        # amount_currency: positive on debit, negative on credit
+        amt_currency = self.amount_currency or self.amount
 
         return self.env['account.move'].create({
             'move_type': 'entry',
@@ -137,14 +157,20 @@ class AccountDeferredLine(models.Model):
                     'debit': self.amount,
                     'credit': 0.0,
                     'name': self.name,
+                    'partner_id': self.partner_id.id or False,
                     'currency_id': self.currency_id.id,
+                    'amount_currency': amt_currency,
+                    'analytic_distribution': self.analytic_distribution or False,
                 }),
                 (0, 0, {
                     'account_id': credit_account.id,
                     'debit': 0.0,
                     'credit': self.amount,
                     'name': self.name,
+                    'partner_id': self.partner_id.id or False,
                     'currency_id': self.currency_id.id,
+                    'amount_currency': -amt_currency,
+                    'analytic_distribution': self.analytic_distribution or False,
                 }),
             ],
         })

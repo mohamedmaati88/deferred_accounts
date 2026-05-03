@@ -1,8 +1,15 @@
 import calendar
 
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from dateutil.relativedelta import relativedelta
+
+# Account types that cannot be used as deferred accounts
+_FORBIDDEN_DEFERRED_ACCOUNT_TYPES = frozenset((
+    'asset_receivable',
+    'liability_payable',
+    'asset_cash',
+))
 
 
 class AccountMoveLine(models.Model):
@@ -31,6 +38,28 @@ class AccountMoveLine(models.Model):
     def _compute_vrs_deferred_line_count(self):
         for rec in self:
             rec.vrs_deferred_line_count = len(rec.vrs_deferred_line_ids)
+
+    @api.constrains('vrs_deferred_start_date', 'vrs_deferred_end_date')
+    def _check_deferred_dates(self):
+        for rec in self:
+            start = rec.vrs_deferred_start_date
+            end = rec.vrs_deferred_end_date
+            if start and end and start >= end:
+                raise ValidationError(_(
+                    'Deferral start date (%s) must be before end date (%s).',
+                    start, end,
+                ))
+
+    @api.constrains('vrs_deferred_account_id')
+    def _check_deferred_account_type(self):
+        for rec in self:
+            acc = rec.vrs_deferred_account_id
+            if acc and acc.account_type in _FORBIDDEN_DEFERRED_ACCOUNT_TYPES:
+                raise ValidationError(_(
+                    'Account "%s" cannot be used as a deferred account '
+                    '(Receivable, Payable, and Liquidity accounts are not allowed).',
+                    acc.display_name,
+                ))
 
     def action_view_deferred_schedule_line(self):
         self.ensure_one()
@@ -75,16 +104,26 @@ class AccountMoveLine(models.Model):
 
         recognition_account = self.account_id
         amount = abs(self.balance)
+        amount_currency = abs(self.amount_currency) if self.amount_currency else amount
         invoice_date = self.move_id.invoice_date or fields.Date.today()
+        partner = self.move_id.partner_id
         ref = _('Deferral: %(move)s / %(line)s') % {
             'move': self.move_id.name,
             'line': self.name or (self.product_id.name if self.product_id else ''),
         }
 
+        # Reverse debit/credit direction for refunds (credit notes)
+        is_refund = self.move_id.move_type in ('in_refund', 'out_refund')
         if deferred_type == 'expense':
-            debit_account, credit_account = deferred_account, recognition_account
+            if is_refund:
+                debit_account, credit_account = recognition_account, deferred_account
+            else:
+                debit_account, credit_account = deferred_account, recognition_account
         else:
-            debit_account, credit_account = recognition_account, deferred_account
+            if is_refund:
+                debit_account, credit_account = deferred_account, recognition_account
+            else:
+                debit_account, credit_account = recognition_account, deferred_account
 
         move = self.env['account.move'].create({
             'move_type': 'entry',
@@ -94,21 +133,40 @@ class AccountMoveLine(models.Model):
             'company_id': company.id,
             'currency_id': self.currency_id.id,
             'line_ids': [
-                (0, 0, {'account_id': debit_account.id, 'debit': amount, 'credit': 0.0,
-                        'name': ref, 'currency_id': self.currency_id.id}),
-                (0, 0, {'account_id': credit_account.id, 'debit': 0.0, 'credit': amount,
-                        'name': ref, 'currency_id': self.currency_id.id}),
+                (0, 0, {
+                    'account_id': debit_account.id,
+                    'debit': amount,
+                    'credit': 0.0,
+                    'name': ref,
+                    'partner_id': partner.id or False,
+                    'currency_id': self.currency_id.id,
+                    'amount_currency': amount_currency,
+                    'analytic_distribution': self.analytic_distribution or False,
+                }),
+                (0, 0, {
+                    'account_id': credit_account.id,
+                    'debit': 0.0,
+                    'credit': amount,
+                    'name': ref,
+                    'partner_id': partner.id or False,
+                    'currency_id': self.currency_id.id,
+                    'amount_currency': -amount_currency,
+                    'analytic_distribution': self.analytic_distribution or False,
+                }),
             ],
         })
         move.action_post()
 
-        self.env['account.deferred.line'].create({
+        self.env['account.deferred.line'].sudo().create({
             'name': ref,
             'is_initial': True,
             'invoice_line_id': self.id,
             'deferred_type': deferred_type,
             'date': invoice_date,
             'amount': amount,
+            'amount_currency': amount_currency,
+            'partner_id': partner.id or False,
+            'analytic_distribution': self.analytic_distribution or False,
             'recognition_account_id': recognition_account.id,
             'deferred_account_id': deferred_account.id,
             'move_id': move.id,
@@ -117,13 +175,7 @@ class AccountMoveLine(models.Model):
         return move
 
     def _compute_deferred_periods(self, start, end, amount):
-        """Split amount across monthly periods using the company's Based on method.
-
-        Reads company.vrs_deferred_computation_method:
-          'day'        – prorate by actual calendar days
-          'month'      – equal share per month
-          'full_month' – weighted by fraction of each calendar month
-        """
+        """Split amount across monthly periods using the company's Based on method."""
         company = self.move_id.company_id.sudo()
         method = company.vrs_deferred_computation_method or 'month'
 
@@ -143,13 +195,11 @@ class AccountMoveLine(models.Model):
             current = next_month
 
         if method == 'month':
-            # Equal share per month — partial months count as full months
             nb = len(periods)
             base = round(amount / nb, 2)
             for p in periods:
                 p['amount'] = base
         elif method == 'full_month':
-            # Weight each period by its fraction of a full calendar month
             weights = []
             for p in periods:
                 days_in_month = calendar.monthrange(p['period_start'].year,
@@ -158,8 +208,7 @@ class AccountMoveLine(models.Model):
             total_weight = sum(weights)
             for p, w in zip(periods, weights):
                 p['amount'] = round(amount * w / total_weight, 2)
-        else:
-            # 'day' — prorate by actual days (default)
+        else:  # 'day'
             total_days = (end - start).days + 1
             for p in periods:
                 p['amount'] = round(amount * p['period_days'] / total_days, 2)
@@ -176,16 +225,29 @@ class AccountMoveLine(models.Model):
         start = self.vrs_deferred_start_date
         end = self.vrs_deferred_end_date
         amount = abs(self.balance)
+        amount_currency_total = abs(self.amount_currency) if self.amount_currency else amount
         deferred_type = self._get_deferred_type()
         recognition_account = self.account_id
         deferred_account = self.vrs_deferred_account_id
+        partner = self.move_id.partner_id
 
         periods = self._compute_deferred_periods(start, end, amount)
+
+        # Distribute amount_currency proportionally across periods
+        for p in periods:
+            p['amount_currency'] = (
+                round(amount_currency_total * p['amount'] / amount, 2)
+                if amount else 0.0
+            )
+        # Fix currency rounding on last period
+        diff_currency = amount_currency_total - sum(p['amount_currency'] for p in periods)
+        if periods and diff_currency:
+            periods[-1]['amount_currency'] = round(periods[-1]['amount_currency'] + diff_currency, 2)
 
         today = fields.Date.today()
         invoice_ref = self.move_id.name or self.move_id.ref or _('Invoice')
         total = len(periods)
-        lines = self.env['account.deferred.line'].create([
+        lines = self.env['account.deferred.line'].sudo().create([
             {
                 'name': _('%(ref)s - Recognition %(n)d/%(total)d') % {
                     'ref': invoice_ref, 'n': i + 1, 'total': total,
@@ -194,6 +256,9 @@ class AccountMoveLine(models.Model):
                 'deferred_type': deferred_type,
                 'date': p['date'],
                 'amount': p['amount'],
+                'amount_currency': p['amount_currency'],
+                'partner_id': partner.id or False,
+                'analytic_distribution': self.analytic_distribution or False,
                 'recognition_account_id': recognition_account.id,
                 'deferred_account_id': deferred_account.id,
                 'state': 'draft',

@@ -1,4 +1,5 @@
 from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 
 class AccountMove(models.Model):
@@ -40,7 +41,6 @@ class AccountMove(models.Model):
     @api.onchange('vrs_is_deferred')
     def _onchange_vrs_is_deferred(self):
         if self.vrs_is_deferred:
-            # Clear standard Odoo deferred dates so both systems don't run together
             self.line_ids.write({
                 'deferred_start_date': False,
                 'deferred_end_date': False,
@@ -53,8 +53,6 @@ class AccountMove(models.Model):
             })
 
     def action_post(self):
-        # When using custom deferred, clear standard Odoo deferred dates at DB level
-        # so super() does not create standard amortization entries alongside our custom ones.
         for move in self.filtered(lambda m: m.vrs_is_deferred):
             lines_with_std = move.line_ids.filtered(
                 lambda l: l.deferred_start_date or l.deferred_end_date
@@ -73,16 +71,35 @@ class AccountMove(models.Model):
                 line._create_deferred_schedule()
         return result
 
+    def _vrs_check_lock_dates(self, deferred_lines):
+        """Raise if any recognition entry falls within a locked fiscal period."""
+        company = self.company_id
+        lock_date = getattr(company, 'fiscalyear_lock_date', False)
+        if not lock_date:
+            return
+        for dl in deferred_lines.filtered(lambda l: l.move_id):
+            entry_date = dl.move_id.date
+            if entry_date and entry_date <= lock_date:
+                raise UserError(_(
+                    'Cannot cancel/reset recognition entry "%s" dated %s: '
+                    'the fiscal period is locked until %s.\n'
+                    'Contact your accountant to unlock the period first.',
+                    dl.move_id.name or dl.name,
+                    entry_date,
+                    lock_date,
+                ))
+
     def _vrs_clear_deferred_lines(self):
         for move in self:
             all_dl = move.line_ids.mapped('vrs_deferred_line_ids')
             if all_dl:
+                move._vrs_check_lock_dates(all_dl)
                 for dl in all_dl.filtered(lambda l: l.move_id):
                     entry = dl.move_id
                     if entry.state == 'posted':
                         entry.button_draft()
                     entry.unlink()
-                all_dl.unlink()
+                all_dl.sudo().unlink()
 
     def _vrs_cancel_standard_deferred(self):
         """Cancel any standard Odoo deferred amortization entries linked to these moves."""

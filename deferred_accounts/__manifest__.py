@@ -1,6 +1,6 @@
 {
     'name': 'Deferred Revenue & Expense Control',
-    'version': '19.0.3.7.0',
+    'version': '19.0.1.1.0',
     'category': 'Accounting/Accounting',
     'summary': 'Set deferred accounts per invoice line or journal entry — override company defaults with full flexibility',
     'description': """
@@ -33,6 +33,7 @@ Accounting → Settings → Custom Deferred Recognition
     'depends': ['account'],
     'data': [
         'security/ir.model.access.csv',
+        'data/ir_cron.xml',
         'views/res_config_settings_views.xml',
         'views/account_deferred_line_views.xml',
         'views/account_move_views.xml',
