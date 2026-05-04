@@ -19,10 +19,11 @@ class AccountMoveLine(models.Model):
         'account.account',
         string='Deferred Account',
         domain="[('account_type', 'in', ['asset_current', 'asset_non_current', 'liability_current', 'liability_non_current'])]",
+        copy=False,
     )
     # Independent date fields — never touch deferred_start_date / deferred_end_date.
-    vrs_deferred_start_date = fields.Date(string='Def. Start')
-    vrs_deferred_end_date = fields.Date(string='Def. End')
+    vrs_deferred_start_date = fields.Date(string='Def. Start', copy=False)
+    vrs_deferred_end_date = fields.Date(string='Def. End', copy=False)
 
     vrs_deferred_line_ids = fields.One2many(
         'account.deferred.line',

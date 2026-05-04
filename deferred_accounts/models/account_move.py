@@ -52,6 +52,16 @@ class AccountMove(models.Model):
                 'vrs_deferred_end_date': False,
             })
 
+    def write(self, vals):
+        # When Custom Deferred is disabled, clear all deferred fields from DB
+        if 'vrs_is_deferred' in vals and not vals['vrs_is_deferred']:
+            self.line_ids.write({
+                'vrs_deferred_account_id': False,
+                'vrs_deferred_start_date': False,
+                'vrs_deferred_end_date': False,
+            })
+        return super().write(vals)
+
     def action_post(self):
         for move in self.filtered(lambda m: m.vrs_is_deferred):
             lines_with_std = move.line_ids.filtered(
